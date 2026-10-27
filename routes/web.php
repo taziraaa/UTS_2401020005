@@ -130,3 +130,53 @@ Route::get('/buku', function (Request $request) {
         );
     }
 })->name('buku.index');
+Route::post('/buku', function (Request $request) {
+    bersihkanInputBuku($request);
+    $data = $request->validate(aturanBuku(), pesanBuku());
+
+    try {
+        $pdo = DB::connection()->getPdo();
+
+        if (!kategoriTersedia($pdo, (int) $data['kategori_buku_id'])) {
+            return back()->withInput()->with(
+                'gagal',
+                'Kategori buku tidak tersedia.'
+            );
+        }
+
+        $cek = $pdo->prepare(
+            'SELECT COUNT(*) FROM buku
+             WHERE kode_buku = :kode_buku OR isbn = :isbn'
+        );
+        $cek->execute([
+            'kode_buku' => $data['kode_buku'],
+            'isbn' => $data['isbn'],
+        ]);
+
+        if ((int) $cek->fetchColumn() > 0) {
+            return back()->withInput()->with(
+                'gagal',
+                'Kode buku atau ISBN sudah digunakan.'
+            );
+        }
+
+        $simpan = $pdo->prepare(
+            'INSERT INTO buku
+             (kode_buku, judul, isbn, tahun_terbit, kategori_buku_id)
+             VALUES (:kode_buku, :judul, :isbn, :tahun_terbit, :kategori_buku_id)'
+        );
+        $simpan->execute($data);
+
+        return redirect()->route('buku.index')->with(
+            'berhasil',
+            'Data buku berhasil ditambahkan.'
+        );
+    } catch (\Throwable $error) {
+        report($error);
+
+        return back()->withInput()->with(
+            'gagal',
+            'Data gagal disimpan. Periksa koneksi dan data.'
+        );
+    }
+})->name('buku.store');
