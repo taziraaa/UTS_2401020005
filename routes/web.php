@@ -130,6 +130,7 @@ Route::get('/buku', function (Request $request) {
         );
     }
 })->name('buku.index');
+
 Route::post('/buku', function (Request $request) {
     bersihkanInputBuku($request);
     $data = $request->validate(aturanBuku(), pesanBuku());
@@ -180,3 +181,125 @@ Route::post('/buku', function (Request $request) {
         );
     }
 })->name('buku.store');
+Route::get('/buku/{id}/edit', function (int $id) {
+    try {
+        $pdo = DB::connection()->getPdo();
+        $ambilBuku = $pdo->prepare(
+            'SELECT id, kode_buku, judul, isbn, tahun_terbit, kategori_buku_id
+             FROM buku WHERE id = :id'
+        );
+        $ambilBuku->execute(['id' => $id]);
+        $buku = $ambilBuku->fetch(\PDO::FETCH_ASSOC);
+
+        if (!$buku) {
+            return redirect()->route('buku.index')->with(
+                'gagal',
+                'Data buku tidak ditemukan.'
+            );
+        }
+
+        $ambilKategori = $pdo->prepare(
+            'SELECT id, nama_kategori FROM kategori_buku ORDER BY nama_kategori'
+        );
+        $ambilKategori->execute();
+        $daftarKategori = $ambilKategori->fetchAll(\PDO::FETCH_ASSOC);
+
+        return view('buku-edit', compact('buku', 'daftarKategori'));
+    } catch (\Throwable $error) {
+        report($error);
+
+        return redirect()->route('buku.index')->with(
+            'gagal',
+            'Data gagal dibuka untuk diubah.'
+        );
+    }
+})->name('buku.edit');
+
+Route::put('/buku/{id}', function (Request $request, int $id) {
+    bersihkanInputBuku($request);
+    $data = $request->validate(aturanBuku(), pesanBuku());
+
+    try {
+        $pdo = DB::connection()->getPdo();
+
+        if (!kategoriTersedia($pdo, (int) $data['kategori_buku_id'])) {
+            return back()->withInput()->with(
+                'gagal',
+                'Kategori buku tidak tersedia.'
+            );
+        }
+
+        $cek = $pdo->prepare(
+            'SELECT COUNT(*) FROM buku
+             WHERE (kode_buku = :kode_buku OR isbn = :isbn)
+               AND id <> :id'
+        );
+        $cek->execute([
+            'kode_buku' => $data['kode_buku'],
+            'isbn' => $data['isbn'],
+            'id' => $id,
+        ]);
+
+        if ((int) $cek->fetchColumn() > 0) {
+            return back()->withInput()->with(
+                'gagal',
+                'Kode buku atau ISBN sudah digunakan buku lain.'
+            );
+        }
+
+        $ubah = $pdo->prepare(
+            'UPDATE buku
+             SET kode_buku = :kode_buku, judul = :judul, isbn = :isbn,
+                 tahun_terbit = :tahun_terbit,
+                 kategori_buku_id = :kategori_buku_id
+             WHERE id = :id'
+        );
+        $ubah->execute([
+            'kode_buku' => $data['kode_buku'],
+            'judul' => $data['judul'],
+            'isbn' => $data['isbn'],
+            'tahun_terbit' => $data['tahun_terbit'],
+            'kategori_buku_id' => $data['kategori_buku_id'],
+            'id' => $id,
+        ]);
+
+        return redirect()->route('buku.index')->with(
+            'berhasil',
+            'Data buku berhasil diperbarui.'
+        );
+    } catch (\Throwable $error) {
+        report($error);
+
+        return back()->withInput()->with(
+            'gagal',
+            'Data gagal diperbarui. Periksa koneksi dan data.'
+        );
+    }
+})->name('buku.update');
+
+Route::delete('/buku/{id}', function (int $id) {
+    try {
+        $pdo = DB::connection()->getPdo();
+        $hapus = $pdo->prepare('DELETE FROM buku WHERE id = :id');
+        $hapus->execute(['id' => $id]);
+
+        if ($hapus->rowCount() === 0) {
+            return redirect()->route('buku.index')->with(
+                'gagal',
+                'Data buku tidak ditemukan.'
+            );
+        }
+
+        return redirect()->route('buku.index')->with(
+            'berhasil',
+            'Data buku berhasil dihapus.'
+        );
+    } catch (\Throwable $error) {
+        report($error);
+
+        return redirect()->route('buku.index')->with(
+            'gagal',
+            'Data gagal dihapus. Periksa relasi atau koneksi.'
+        );
+    }
+})->name('buku.destroy');
